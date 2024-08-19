@@ -1,0 +1,143 @@
+/oracle/product/wallet
+
+Steps to configure Transparent Data Encryption in Oracle
+
+Configure the Software Keystore Location.
+--For 19c Oracle onwards: Set the WALLET_ROOT and TDE_CONFIGURATION parameters.
+
+-- Need to reboot for effect this parameter.
+ALTER SYSTEM SET WALLET_ROOT='/oracle/product/wallet' SCOPE=SPFILE SID='*';
+
+--Shutdown immediate and Startup before set run following command
+
+--No need to reboot
+ALTER SYSTEM SET TDE_CONFIGURATION="KEYSTORE_CONFIGURATION=FILE" SCOPE=BOTH SID='*';
+
+--For Oracle 12c or older version:
+ENCRYPTION_WALLET_LOCATION=(SOURCE=(METHOD=FILE)
+    (METHOD_DATA=
+     (DIRECTORY=/oracle/product/wallet))
+2 Check the TDE wallet directory once and use that in upcoming commands:
+
+SQL> select wrl_parameter from v$encryption_wallet;
+
+WRL_PARAMETER
+--------------------------------------------------------------------------------
+E:\ORACLE\WALLETS\ORCL\tde\
+3. Create the Directory /oracle/product/wallet/tde in Operating system.
+
+4. Create the Software Keystore.
+
+---Creating a Password-Protected Software Keystore:
+
+SQL>ADMINISTER KEY MANAGEMENT CREATE KEYSTORE IDENTIFIED BY Oracle_123;
+
+----Creating an Auto-Login Software Keystore
+
+SQL> ADMINISTER KEY MANAGEMENT CREATE AUTO_LOGIN KEYSTORE FROM KEYSTORE '/oracle/product/wallet/tde' IDENTIFIED BY Oracle_123;
+3. Open the Keystore.
+
+--open the keystore with following command:
+
+SQL> ADMINISTER KEY MANAGEMENT SET KEYSTORE OPEN IDENTIFIED BY Oracle_123;
+
+Check the status of the keystore:
+
+SQL> SELECT STATUS FROM V$ENCRYPTION_WALLET;
+STATUS
+------------------------------
+OPEN_NO_MASTER_KEY
+
+4. Set the master encryption key by executing the following command:
+
+SQL> ADMINISTER KEY MANAGEMENT SET KEY IDENTIFIED BY Oracle_123 WITH BACKUP USING 'key_backup';
+
+----check the status of the keystore:
+SQL> SELECT STATUS FROM V$ENCRYPTION_WALLET;
+STATUS
+------------------------------
+OPEN
+5. Configure for PDBs database in Oracle
+
+SQL>  	
+
+STATUS          CON_ID
+-------------   -------
+OPEN            1
+OPEN            2
+CLOSED          3
+
+SQL> alter pluggable database PDB open;
+
+Pluggable database altered.
+SQL> ALTER SESSION SET CONTAINER=PDB;
+
+Session altered.
+
+SQL> ADMINISTER KEY MANAGEMENT SET  KEYSTORE OPEN IDENTIFIED BY Oracle_123 container=current;
+keystore altered.
+
+SQL>  SELECT status FROM V$ENCRYPTION_WALLET;
+STATUS
+--------------------
+OPEN_NO_MASTER_KEY
+
+SQL> ADMINISTER KEY MANAGEMENT SET  KEY IDENTIFIED BY Oracle_123 with backup;
+keystore altered.
+
+SQL>  SELECT status FROM V$ENCRYPTION_WALLET;
+STATUS
+--------------------
+OPEN
+
+5. Encrypt the table or tablespace
+
+
+Encrypt the table column by create or alter command:
+
+-- Create a new table with encrypted column
+CREATE TABLE app.employee (empID NUMBER, salary NUMBER(10) ENCRYPT);
+
+--Adding new encrypted column to table 
+ALTER TABLE app.employee ADD (salary_1 NUMBER(10) ENCRYPT);
+
+
+--Modify the exiting column present in table to encrypt
+ALTER TABLE app.employee MODIFY (salary ENCRYPT);
+	 
+Note: By default, TDE adds salt to plaintext before encrypting it. It make more harder for hacker to hack data.
+if you plan to index the encrypted column, then you must use the NO SALT parameter.
+
+CREATE TABLE app.employee1 (
+     empID NUMBER,
+     salary NUMBER(10) ENCRYPT NO SALT);
+	 
+Disable encryption for column as :
+ALTER TABLE app.employee1 MODIFY (first_name DECRYPT);
+
+
+Encrypt the Tablespace:
+
+1. Check the compatibility parameter, it must be 11.2.0.0 minimum value.
+
+2. Open wallet at mount stage before open 
+
+STARTUP MOUNT;
+ADMINISTER KEY MANAGEMENT SET KEYSTORE OPEN IDENTIFIED BY Oracle_123;
+ALTER DATABASE OPEN;
+
+3.  Set the Tablespace TDE Master Encryption Key. If already done then no need to do in step 4.
+
+ADMINISTER KEY MANAGEMENT SET KEY IDENTIFIED BY keystore_password WITH BACKUP USING 'emp_key_backup';
+
+4. Create tablespace with encryptions:
+
+CREATE TABLESPACE securespace_2
+DATAFILE 
+SIZE 5M
+ENCRYPTION
+DEFAULT STORAGE(ENCRYPT);
+
+
+Check status tablespace encrypt
+SELECT t.name, e.encryptedts, e.status FROM v$tablespace t, v$encrypted_tablespaces e WHERE t.ts#=e.ts#;
